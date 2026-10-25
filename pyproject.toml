@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idempotency-ledger"
+version = "0.1.0"
+description = "Small SQLite idempotency claims, lease fencing, and permanent result replay"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Martin Lofrano"}]
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Database",
+]
+
+[tool.setuptools]
+py-modules = ["idempotency_ledger"]
