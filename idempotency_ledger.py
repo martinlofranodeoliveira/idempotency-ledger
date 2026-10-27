@@ -335,6 +335,28 @@ class Ledger:
                 )
             return {"status": "claimed", "token": token, "expires_at": expires_at}
 
+    def renew(
+        self, key: str, token: str, *, now_ms: int, lease_ms: int
+    ) -> bool:
+        """Extend a pending, owned lease without shortening its current expiry.
+
+        Returns False for missing, stale, expired, or already completed claims.
+        All input validation happens before opening a write transaction.
+        """
+        key = _text(key, _KEY, "key")
+        token = _text(token, _HEX, "token")
+        now_ms = _integer(now_ms, 0, _MAX_TIME, "time")
+        lease_ms = _integer(lease_ms, 1, _MAX_LEASE, "lease")
+        if now_ms + lease_ms > _MAX_TIME:
+            raise LedgerError("Lease expiry exceeds the time limit.")
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE _ledger_entries SET expires_at = max(expires_at, ?) "
+                "WHERE key = ? AND token = ? AND state = 'pending' AND expires_at > ?",
+                (now_ms + lease_ms, key, token, now_ms),
+            )
+            return cursor.rowcount == 1
+
     def complete(self, key: str, token: str, result: object, *, now_ms: int) -> bool:
         """Store a result only for the current token before its lease expires.
 

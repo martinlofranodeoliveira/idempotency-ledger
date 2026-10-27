@@ -19,6 +19,7 @@ Dentro do repositório:
 python -m pip install .
 python -B -m unittest discover -s tests -v
 PYTHONPATH=. python -B examples/synthetic_demo.py
+PYTHONPATH=. python -B examples/synthetic_long_job.py
 ```
 
 A demonstração usa apenas dados sintéticos e remove seu banco temporário ao
@@ -91,6 +92,23 @@ a chave estiver pendente, o token for o atual e `now_ms < expires_at`. Retorna
 O resultado é validado mesmo para uma chave ausente ou um token antigo. O retorno
 indica apenas se o registro aceitou a conclusão.
 
+`renew(key, token, *, now_ms, lease_ms) -> bool` renova explicitamente uma posse
+pendente somente se o token for o atual e `now_ms < expires_at`. O novo prazo é
+`max(prazo_anterior, now_ms + lease_ms)`: uma solicitação de prazo menor ou igual
+retorna `True` sem encurtar a posse. Token, impressão digital, estado e resultado
+são preservados. Retorna `False` para chave ausente, token antigo, posse expirada
+ou concluída. No instante exato do vencimento, a renovação não pode reativar a
+posse, inclusive após sua aquisição por outro token. A validação de chave, token,
+tempo, prazo e estouro da soma ocorre antes de qualquer transação.
+
+Trabalhos longos podem chamar `renew` de forma cooperativa entre etapas de duração
+limitada, antes de vencer o prazo atual. Se retornar `False`, pare de iniciar
+trabalho sob essa posse e descarte seu resultado. O [exemplo sintético de trabalho
+longo](examples/synthetic_long_job.py) usa chamadas explícitas e tempos fornecidos
+pela aplicação. Cada prazo solicitado tem limite de um dia, mas renovações
+sucessivas permitem uma duração total maior que um dia. Não há renovação
+automática, agendador ou consulta ao relógio em segundo plano.
+
 Entradas inválidas e falhas do banco causam `LedgerError`, com mensagens sem
 caminhos, SQL ou conteúdo das solicitações. Uma entrada inválida não altera o
 registro.
@@ -122,7 +140,7 @@ Use um banco exclusivo em um **sistema de arquivos local e confiável**, para
 volume modesto. SQLite serializa as escritas. Não é um serviço de bloqueio
 distribuído, não é indicado para sistemas de arquivos de rede e não inclui
 integração com uma frota de produção. Não altere as tabelas nem o modo de journal
-externamente. Não há servidor, rede, execução automática, renovação de posse ou
+externamente. Não há servidor, rede, execução automática, renovação automática de posse ou
 política de retenção. Resultados permanecem no banco e a aplicação deve planejar
 capacidade, ciclo de vida e proteção dos dados.
 
@@ -133,12 +151,15 @@ token protege somente a conclusão neste registro. Serviços externos e transaç
 de negócio precisam de sua própria idempotência ou mecanismo de proteção. Os
 tempos fornecidos pelo chamador são confiados; informar um tempo passado pode
 violar a validade real do prazo.
+A renovação não interrompe um worker expirado, não protege efeitos em sistemas
+externos e não acrescenta garantia de execução exatamente uma vez.
 
 Os testes públicos usam apenas bancos sintéticos temporários. Cobrem disputas
 entre threads e processos, conclusões concorrentes, tokens antigos, conflitos,
 repetição permanente, validação JSON, limites de tempo/tamanho/profundidade,
 contenção limitada, modo privado, criação sem substituição, limpeza de conexões,
-falhas de criação e preservação de bancos alheios. O CI testa Python 3.10, 3.12 e
-3.14, com permissões de leitura e sem persistir credenciais do checkout.
+falhas de criação e preservação de bancos alheios. Os testes também cobrem
+renovação disputando com nova aquisição e conclusão. O CI testa Python 3.10,
+3.12 e 3.14, com permissões de leitura e sem persistir credenciais do checkout.
 
 MIT © 2026 Martin Lofrano.

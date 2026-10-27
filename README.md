@@ -18,6 +18,7 @@ From a checkout:
 python -m pip install .
 python -B -m unittest discover -s tests -v
 PYTHONPATH=. python -B examples/synthetic_demo.py
+PYTHONPATH=. python -B examples/synthetic_long_job.py
 ```
 
 The demo uses synthetic data in a temporary directory and removes its database
@@ -93,6 +94,21 @@ missing claims, stale tokens, expired claims, and already completed claims.
 It validates the result even when a claim is missing or stale. The return value
 reports only whether this ledger accepted the result.
 
+`renew(key, token, *, now_ms, lease_ms) -> bool` explicitly renews a pending
+claim only when its token matches and `now_ms < expires_at`. Its new expiry is
+`max(previous_expiry, now_ms + lease_ms)`: a shorter or equal request succeeds
+without shortening the lease. The token, fingerprint, state, and result stay
+intact. It returns `False` for missing, stale, expired, or completed claims;
+renewal at the exact expiry cannot revive a claim, including after reclaim.
+All key, token, time, lease, and overflow validation runs before any transaction.
+
+Long jobs can call `renew` cooperatively between bounded pieces of work, before
+the current lease expires. If it returns `False`, stop starting work under that
+claim and discard its result. The [synthetic long-job example](examples/synthetic_long_job.py)
+shows these explicit calls with caller-supplied timestamps. Each lease request
+is limited to one day, but repeated renewals can extend total ownership beyond
+one day. There is no automatic renewal, scheduler, or background clock access.
+
 Invalid inputs and database failures raise `LedgerError` with messages that omit
 paths, SQL, and payloads. An invalid input causes no ledger changes.
 
@@ -118,7 +134,7 @@ global decimal-digit settings.
 Independent instances, threads, and processes coordinate through SQLite
 `BEGIN IMMEDIATE` transactions. Connections close after every operation; there
 is no background thread, server, network call, scheduler, automatic execution,
-retention policy, or lease renewal. Lock contention waits up to approximately
+retention policy, or automatic lease renewal. Lock contention waits up to approximately
 2 seconds at each SQLite lock acquisition, then raises `LedgerError`; application
 retries need their own policy.
 
@@ -135,6 +151,8 @@ storing its result; a retry may repeat that effect. Tokens fence writes to this
 ledger only. External services or your own atomic business transaction must
 provide their own idempotency or fencing. Caller-supplied time is trusted; a
 caller supplying a past time can defeat real-world lease expiry.
+Renewal does not stop an expired worker or fence downstream effects, and does
+not add an exactly-once guarantee.
 
 ## Development
 
@@ -146,7 +164,8 @@ The public tests cover thread and subprocess claim races, completion races,
 expired-owner fencing, permanent replay, fingerprint conflicts, strict JSON and
 time boundaries, size/depth limits, bounded contention, private creation mode,
 no-overwrite creation races, connection cleanup, injected creation failures,
-and byte preservation of unrelated databases. Every database fixture is synthetic
+byte preservation of unrelated databases, and explicit renewal racing reclaim
+and completion. Every database fixture is synthetic
 and temporary. GitHub Actions runs Python 3.10, 3.12, and 3.14 with read-only
 repository permissions and without persisted checkout credentials.
 
