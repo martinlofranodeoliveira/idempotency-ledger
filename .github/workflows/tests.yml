@@ -26,3 +26,5 @@ jobs:
         run: PYTHONPATH=. python -B examples/synthetic_demo.py
       - name: Run synthetic long-job example
         run: PYTHONPATH=. python -B examples/synthetic_long_job.py
+      - name: Run synthetic cancelled-job example
+        run: PYTHONPATH=. python -B examples/synthetic_cancelled_job.py

@@ -20,6 +20,7 @@ python -m pip install .
 python -B -m unittest discover -s tests -v
 PYTHONPATH=. python -B examples/synthetic_demo.py
 PYTHONPATH=. python -B examples/synthetic_long_job.py
+PYTHONPATH=. python -B examples/synthetic_cancelled_job.py
 ```
 
 A demonstração usa apenas dados sintéticos e remove seu banco temporário ao
@@ -109,6 +110,35 @@ pela aplicação. Cada prazo solicitado tem limite de um dia, mas renovações
 sucessivas permitem uma duração total maior que um dia. Não há renovação
 automática, agendador ou consulta ao relógio em segundo plano.
 
+`abandon(key, token, *, now_ms) -> bool` devolve uma posse pendente ainda válida
+sem esperar pelo vencimento. Só retorna `True` para o token atual enquanto
+`now_ms < expires_at`. Retorna `False` para chave ausente, token antigo, posse
+expirada ou concluída, inclusive no instante exato do vencimento. A validação
+ocorre antes de qualquer transação, com os mesmos limites de chave, token e tempo
+de `complete`.
+
+No sucesso, somente o prazo armazenado muda, para **zero**. Todo tempo válido é
+não negativo; por isso, o token antigo não pode concluir, renovar ou abandonar
+novamente, mesmo informando um tempo passado. A linha e a impressão digital
+original permanecem: outra solicitação continua em conflito. A mesma solicitação
+pode chamar `claim` imediatamente para obter um novo token. Um resultado já
+concluído nunca é removido ou alterado pelo abandono.
+
+```python
+if ledger.abandon("fatura:42", claim["token"], now_ms=1002):
+    # A mesma solicitação está disponível para uma nova aquisição explícita.
+    replacement = ledger.claim("fatura:42", fingerprint, now_ms=1002, lease_ms=5000)
+```
+
+Use de forma cooperativa ao interromper o trabalho, por exemplo antes de executar
+qualquer efeito externo. O método não interrompe threads, não desfaz efeitos,
+não agenda uma nova tentativa e não avisa outros workers. Um efeito já executado
+continua precisando de idempotência no sistema externo. Abandono e conclusão
+disputam atomicamente: o primeiro sucesso impede que a outra operação altere a
+posse. O [exemplo de cancelamento sintético](examples/synthetic_cancelled_job.py)
+devolve uma tarefa ainda não iniciada e a adquire novamente. As linhas continuam
+acumulando no registro.
+
 Entradas inválidas e falhas do banco causam `LedgerError`, com mensagens sem
 caminhos, SQL ou conteúdo das solicitações. Uma entrada inválida não altera o
 registro.
@@ -159,7 +189,9 @@ entre threads e processos, conclusões concorrentes, tokens antigos, conflitos,
 repetição permanente, validação JSON, limites de tempo/tamanho/profundidade,
 contenção limitada, modo privado, criação sem substituição, limpeza de conexões,
 falhas de criação e preservação de bancos alheios. Os testes também cobrem
-renovação disputando com nova aquisição e conclusão. O CI testa Python 3.10,
+renovação disputando com nova aquisição e conclusão. Também cobrem abandono
+cooperativo, tokens antigos após abandono e disputas com
+nova aquisição, renovação, conclusão e outro abandono. O CI testa Python 3.10,
 3.12 e 3.14, com permissões de leitura e sem persistir credenciais do checkout.
 
 MIT © 2026 Martin Lofrano.

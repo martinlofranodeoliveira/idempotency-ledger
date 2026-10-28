@@ -357,6 +357,25 @@ class Ledger:
             )
             return cursor.rowcount == 1
 
+    def abandon(self, key: str, token: str, *, now_ms: int) -> bool:
+        """Expire a live owned claim so the same request can be reclaimed now.
+
+        Only expires_at changes, to zero. Because valid caller times are
+        nonnegative, the old token cannot complete or renew even at an earlier
+        time. The fingerprint and row remain; completed results are untouched.
+        This does not stop work or cancel external effects.
+        """
+        key = _text(key, _KEY, "key")
+        token = _text(token, _HEX, "token")
+        now_ms = _integer(now_ms, 0, _MAX_TIME, "time")
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE _ledger_entries SET expires_at = 0 "
+                "WHERE key = ? AND token = ? AND state = 'pending' AND expires_at > ?",
+                (key, token, now_ms),
+            )
+            return cursor.rowcount == 1
+
     def complete(self, key: str, token: str, result: object, *, now_ms: int) -> bool:
         """Store a result only for the current token before its lease expires.
 

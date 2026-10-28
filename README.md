@@ -19,6 +19,7 @@ python -m pip install .
 python -B -m unittest discover -s tests -v
 PYTHONPATH=. python -B examples/synthetic_demo.py
 PYTHONPATH=. python -B examples/synthetic_long_job.py
+PYTHONPATH=. python -B examples/synthetic_cancelled_job.py
 ```
 
 The demo uses synthetic data in a temporary directory and removes its database
@@ -109,6 +110,32 @@ shows these explicit calls with caller-supplied timestamps. Each lease request
 is limited to one day, but repeated renewals can extend total ownership beyond
 one day. There is no automatic renewal, scheduler, or background clock access.
 
+`abandon(key, token, *, now_ms) -> bool` gives up a live, owned pending claim
+without waiting for its lease to expire. It succeeds only for the current token
+while `now_ms < expires_at`. It returns `False` for missing, stale, expired, or
+completed claims, including at the exact expiry. Input validation happens before
+any transaction, with the same key, token, and time limits as `complete`.
+
+On success, only the stored expiry changes, to **zero**. Every valid caller time
+is nonnegative, so the old owner cannot complete, renew, or abandon again even
+with a past timestamp. The row and original fingerprint remain: a different
+request still conflicts. The same request can immediately call `claim` for a new
+token. Abandonment never removes or changes a completed result.
+
+```python
+if ledger.abandon("invoice:42", claim["token"], now_ms=1002):
+    # The same request is now available for another explicit claim.
+    replacement = ledger.claim("invoice:42", fingerprint, now_ms=1002, lease_ms=5000)
+```
+
+Use this cooperatively when stopping work, for example before starting any
+external effect. It does not stop a thread, undo an effect, enqueue a retry, or
+notify another worker. An effect already performed still needs downstream
+idempotency. Abandonment races atomically with completion: whichever succeeds
+first prevents the other from changing the claim. The
+[synthetic cancellation example](examples/synthetic_cancelled_job.py) shows an
+unstarted task being returned and reclaimed. Entries continue to accumulate.
+
 Invalid inputs and database failures raise `LedgerError` with messages that omit
 paths, SQL, and payloads. An invalid input causes no ledger changes.
 
@@ -165,7 +192,9 @@ expired-owner fencing, permanent replay, fingerprint conflicts, strict JSON and
 time boundaries, size/depth limits, bounded contention, private creation mode,
 no-overwrite creation races, connection cleanup, injected creation failures,
 byte preservation of unrelated databases, and explicit renewal racing reclaim
-and completion. Every database fixture is synthetic
+and completion, cooperative abandonment, stale-owner fencing after abandonment,
+and abandonment racing reclaim, renewal, completion, and another abandonment.
+Every database fixture is synthetic
 and temporary. GitHub Actions runs Python 3.10, 3.12, and 3.14 with read-only
 repository permissions and without persisted checkout credentials.
 
