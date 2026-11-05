@@ -12,7 +12,7 @@ Registra reservas com fencing e resultados reproduzíveis, usando tempo explíci
 ```sh
 git clone https://github.com/martinlofranodeoliveira/idempotency-ledger.git
 cd idempotency-ledger
-python -m idempotency_ledger --help
+PYTHONPATH=. python -B examples/synthetic_demo.py
 ```
 
 Use um ambiente de desenvolvimento separado. Não envie `.env`, chaves, bancos,
